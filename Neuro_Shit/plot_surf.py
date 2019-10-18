@@ -9,8 +9,47 @@ from matplotlib.colors import Normalize, LinearSegmentedColormap
 
 from nilearn.surface import load_surf_data, load_surf_mesh
 from nilearn._utils.compat import _basestring
-from nilearn.plotting.img_plotting import (_get_colorbar_and_data_ranges,
-                                           _crop_colorbar)
+from nilearn.plotting.img_plotting import (_get_colorbar_and_data_ranges)
+
+import matplotlib.colors as colors
+from matplotlib.colors import Normalize, LinearSegmentedColormap
+
+
+class MidpointNormalize(colors.Normalize):
+
+    def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+        self.midpoint = midpoint
+        colors.Normalize.__init__(self, vmin, vmax, clip)
+
+    def __call__(self, value, clip=None):
+        # I'm ignoring masked values and all kinds of edge cases to make a
+        # simple example...
+
+        x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
+        return np.ma.masked_array(np.interp(value, x, y), np.isnan(value))
+
+
+def _crop_colorbar(cbar, cbar_vmin, cbar_vmax):
+    """
+    crop a colorbar to show from cbar_vmin to cbar_vmax
+    Used when symmetric_cbar=False is used.
+    """
+    if (cbar_vmin is None) and (cbar_vmax is None):
+        return
+    cbar_tick_locs = cbar.locator.locs
+    if cbar_vmax is None:
+        cbar_vmax = cbar_tick_locs.max()
+    if cbar_vmin is None:
+        cbar_vmin = cbar_tick_locs.min()
+    new_tick_locs = np.linspace(cbar_vmin, cbar_vmax,
+                                len(cbar_tick_locs))
+    cbar.ax.set_ylim(cbar.norm(cbar_vmin), cbar.norm(cbar_vmax))
+    outline = cbar.outline.get_xy()
+    outline[:2, 1] += cbar.norm(cbar_vmin)
+    outline[2:6, 1] -= (1. - cbar.norm(cbar_vmax))
+    outline[6:, 1] += cbar.norm(cbar_vmin)
+    cbar.outline.set_xy(outline)
+    cbar.set_ticks(new_tick_locs, update_ticks=True)
 
 
 def plot_surf(surf_mesh, surf_map=None, bg_map=None,
@@ -18,7 +57,8 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
               avg_method='mean', threshold=None, alpha='auto',
               bg_on_data=False, darkness=1, vmin=None, vmax=None,
               cbar_vmin=None, cbar_vmax=None,
-              title=None, output_file=None, axes=None, figure=None, **kwargs):
+              title=None, output_file=None, axes=None, figure=None,
+              midpoint=None, dist=6, **kwargs):
     """ Plotting of surfaces with optional background and data
     .. versionadded:: 0.3
     Parameters
@@ -173,7 +213,7 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
                                   color='white')
 
     # reduce viewing distance to remove space around mesh
-    axes.dist = 8
+    axes.dist = dist
 
     # set_facecolors function of Poly3DCollection is used as passing the
     # facecolors argument to plot_trisurf does not seem to work
@@ -227,8 +267,15 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
         else:
             kept_indices = np.where(np.abs(surf_map_faces) >= threshold)[0]
 
-        surf_map_faces = surf_map_faces - vmin
-        surf_map_faces = surf_map_faces / (vmax - vmin)
+        if midpoint is None:
+            surf_map_faces = surf_map_faces - vmin
+            surf_map_faces = surf_map_faces / (vmax - vmin)
+            norm_object = None
+
+        else:
+            norm_object = MidpointNormalize(midpoint=midpoint, vmin=vmin,
+                                            vmax=vmax)
+            surf_map_faces = norm_object.__call__(surf_map_faces).data
 
         # multiply data with background if indicated
         if bg_on_data:
@@ -239,7 +286,11 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
 
         if colorbar:
             our_cmap = get_cmap(cmap)
-            norm = Normalize(vmin=vmin, vmax=vmax)
+
+            if midpoint is None:
+                norm = Normalize(vmin=vmin, vmax=vmax)
+            else:
+                norm = norm_object
 
             nb_ticks = 5
             ticks = np.linspace(vmin, vmax, nb_ticks)
@@ -281,7 +332,13 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
         return figure, surf_map_faces
 
 
-def add_collage_colorbar(figure, ax, smfs, vmax, vmin, **kwargs):
+def add_collage_colorbar(figure, ax, smfs, vmax, vmin, midpoint=None,
+                         multicollage=False,
+                         cbar_fraction=.25,
+                         cbar_shrink=.25,
+                         cbar_aspect=20,
+                         cbar_pad=.1,
+                         **kwargs):
 
     if 'cmap' not in kwargs:
         cmap = None
@@ -311,7 +368,12 @@ def add_collage_colorbar(figure, ax, smfs, vmax, vmin, **kwargs):
 
     # Color bar
     our_cmap = get_cmap(cmap)
-    norm = Normalize(vmin=vmin, vmax=vmax)
+
+    if midpoint is None:
+        norm = Normalize(vmin=vmin, vmax=vmax)
+    else:
+        norm = MidpointNormalize(midpoint=midpoint, vmin=vmin,
+                                 vmax=vmax)
 
     nb_ticks = 5
     ticks = np.linspace(vmin, vmax, nb_ticks)
@@ -334,17 +396,29 @@ def add_collage_colorbar(figure, ax, smfs, vmax, vmin, **kwargs):
     proxy_mappable = ScalarMappable(cmap=our_cmap, norm=norm)
     proxy_mappable.set_array(np.concatenate(smfs))
 
-    left = (ax[0][0].get_position().x0 + ax[0][0].get_position().x1) / 2
-    right = (ax[0][1].get_position().x0 + ax[0][1].get_position().x1) / 2
-    bot = ax[1][0].get_position().y1
-    width = right-left
+    if multicollage:
 
-    # [left, bottom, width, height]
-    cbaxes = figure.add_axes([left, bot - (.05 / 3), width, .05])
+        cbar = plt.colorbar(
+            proxy_mappable, ax=ax, ticks=ticks, spacing='proportional',
+            format='%.2g', orientation='vertical', anchor='C',
+            fraction=cbar_fraction,
+            shrink=cbar_shrink,
+            aspect=cbar_aspect,
+            pad=cbar_pad)
 
-    cbar = plt.colorbar(
-        proxy_mappable, cax=cbaxes, ticks=ticks, spacing='proportional',
-        format='%.2g', orientation='horizontal', shrink=1, anchor='C')
+    else:
+
+        left = (ax[0][0].get_position().x0 + ax[0][0].get_position().x1) / 2
+        right = (ax[0][1].get_position().x0 + ax[0][1].get_position().x1) / 2
+        bot = ax[1][0].get_position().y1
+        width = right-left
+
+        # [left, bottom, width, height]
+        cbaxes = figure.add_axes([left, bot - (.05 / 3), width, .05])
+
+        cbar = plt.colorbar(
+            proxy_mappable, cax=cbaxes, ticks=ticks, spacing='proportional',
+            format='%.2g', orientation='horizontal', shrink=1, anchor='C')
 
     _crop_colorbar(cbar, cbar_vmin, cbar_vmax)
 
