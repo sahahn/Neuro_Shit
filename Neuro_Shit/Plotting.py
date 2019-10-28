@@ -82,6 +82,10 @@ def get_setup(fs_home, destr=True, fs5=False):
         lh_name = 'lh.aparc.a2009s.annot'
         rh_name = 'rh.aparc.a2009s.annot'
 
+    else:
+        lh_name = 'lh.aparc.annot'
+        rh_name = 'rh.aparc.annot'
+
     if fs5:
         fs_type = 'fsaverage5'
         fs_avg = nilearn.datasets.fetch_surf_fsaverage(mesh='fsaverage5')
@@ -157,7 +161,7 @@ def base_surf_collage(data, inflate, fs_avg, colorbar=True, figsize=(20, 20),
 
     for i in range(2):
         for j in range(2):
-            figure, smf = base_surf_plot(data[i], hemis[i][j], inflate, fs_avg,
+            figure, smf = base_surf_plot(data[j], hemis[i][j], inflate, fs_avg,
                                          figure=figure, axes=ax[i, j],
                                          view=views[i], vmin=vmin, vmax=vmax,
                                          midpoint=midpoint, dist=dist,
@@ -256,7 +260,7 @@ def Collages(all_data,
                 for j in range(2):
                     ax = figure.add_subplot(gs[i, j], projection='3d')
 
-                    figure, smf = base_surf_plot(data[i], hemis[i][j], inflate,
+                    figure, smf = base_surf_plot(data[j], hemis[i][j], inflate,
                                                  fs_avg, figure=figure,
                                                  axes=ax, view=views[i],
                                                  vmin=vmin, vmax=vmax,
