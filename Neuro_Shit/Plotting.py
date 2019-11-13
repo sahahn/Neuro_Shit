@@ -23,7 +23,7 @@ def load_mapping(loc):
     return mapping
 
 
-def get_chunk_from_df(data, name_col, value_col, keys):
+def get_chunk_from_df(data, name_col, value_col, keys, d_keys=[]):
 
     if isinstance(keys, str):
         keys = [keys]
@@ -33,7 +33,7 @@ def get_chunk_from_df(data, name_col, value_col, keys):
     for i in data.index:
         name = data[name_col].loc[i]
 
-        if all([key in name for key in keys]):
+        if all([key in name for key in keys]) and not any([key in name for key in d_keys]):
             chunk[name] = data[value_col].loc[i]
 
     return chunk

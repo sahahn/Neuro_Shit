@@ -24,7 +24,7 @@ class Base_Task_Loader():
 
         keep = set(self.covars.index).intersection(data_subjects)
         keep = list(keep)
-        keep.sort()        
+        keep.sort() 
 
         self.covars = self.covars.loc[keep]
         self.subject_order = self.covars.index
